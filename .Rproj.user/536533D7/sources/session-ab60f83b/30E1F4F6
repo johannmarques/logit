@@ -3,9 +3,9 @@
     "path": "/media/johan/AEA0EC4FA0EC2017/Users/johan/Documents/Masters/2023_2/Econometrics II/Grading/main.R",
     "project_path": "main.R",
     "type": "r_source",
-    "hash": "0",
+    "hash": "96128928",
     "contents": "",
-    "dirty": true,
+    "dirty": false,
     "created": 1701539199616.0,
     "source_on_save": false,
     "relative_order": 1,
@@ -17,11 +17,11 @@
         "scrollLine": "187"
     },
     "folds": "",
-    "lastKnownWriteTime": 1701571998,
+    "lastKnownWriteTime": 1701576348,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1701575663101,
+    "last_content_update": 1701576348366,
     "read_only": false,
     "read_only_alternatives": []
 }

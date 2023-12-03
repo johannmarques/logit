@@ -172,6 +172,8 @@ J <- data %>%
 # Corretly specified estimate
 Jinv <- solve(Ical)
 
+sqrt(diag(Jinv))
+
 # ... or just the slice of bread
 
 # Analogously, a tibble with "meat" matrices
@@ -191,4 +193,22 @@ Meat <- data %>%
   Reduce('+', .)
 
 # Misspecified 
-Hinv %*% Meat %*% Hinv 
+sand <- Hinv %*% Meat %*% Hinv 
+
+sqrt(diag(sand))
+
+# Item d
+
+probs_llik(beta_ml)$probabilities %>%
+  select(BRAND, SET, p_tk) %>%
+  arrange(SET, BRAND) %>%
+  distinct() %>%
+  group_by(SET) %>%
+  mutate(pt1 = ifelse(BRAND == 1, p_tk, 0)) %>%
+  mutate(pt1 = sum(pt1)) %>%
+  ungroup() %>%
+  mutate(partial = -p_tk * pt1 *beta_ml[3]) %>%
+  select(SET, BRAND, partial) %>%
+  pivot_wider(names_from = BRAND, values_from = partial)
+
+
