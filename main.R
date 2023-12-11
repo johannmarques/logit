@@ -244,9 +244,42 @@ ggsave('figures/mg1d.pdf', scale = 1.5, device = cairo_pdf)
 data <- data %>%
   filter(BRAND != 0)
 
+beta0 = rep(1, 3)/10
+
+probs_llik_IIA <- function(beta){
+  x = data %>%
+    select(FASH, QUAL, PRICE) %>%
+    #mutate(c = 1) %>%
+    as.matrix() %>%
+    {exp(. %*% beta)} %>%
+    `colnames<-`('p_tk')
+  
+  probs <- data %>%
+    cbind(x) %>%
+    group_by(SET, id) %>%
+    mutate(p_tk = ifelse(BRAND == 0,
+                         1,
+                         p_tk)/(1+sum(p_tk))) %>%
+    ungroup()
+  
+  llik <- probs %>%
+    mutate(llik_itk = CHOICE * log(p_tk)) %>%
+    dplyr::summarise(sum(llik_itk)) %>%
+    as.numeric()
+  return(list(probabilities = probs, llik = llik))
+}
+
+get_llik_IIA <- function(beta){
+  return(-probs_llik_IIA(beta)$llik)
+}
+
 result_IIA <- optim(par = beta0,
-                fn = get_llik,
+                fn = get_llik_IIA,
                 method= 'BFGS')
+
+result_IIA_orig <- result_IIA
+
+result_IIA$par <- c(result_IIA$par, 0)
 
 optim_to_latex(result_IIA, label = "tab:mvIIA",
                caption = 'Logit - Independence of Irrelevant Alternative - Maximum Likelihood estimate',
@@ -525,14 +558,14 @@ for(b in 1:B){
   data <- data %>%
     filter(BRAND != 0)
   
-  betaB_IIA[[b]] <- optim(par = beta0,
-                     fn = get_llik,
+  betaB_IIA[[b]] <- optim(par = beta0_IIA,
+                     fn = get_llik_IIA,
                      method= 'BFGS')$par
 }
 
 betaB_IIA_tibble <- do.call(cbind, betaB_IIA) %>%
   t() %>%
-  `colnames<-`(paste0('beta', c(1:3,0))) %>%
+  `colnames<-`(paste0('beta', c(1:3))) %>%
   data.frame() %>%
   tibble()
 
@@ -541,6 +574,25 @@ betaB_tibble <- do.call(cbind, betaB) %>%
   `colnames<-`(paste0('beta', c(1:3,0))) %>%
   data.frame() %>%
   tibble()
+
+hottest <- hotelling.test(betaB_tibble %>%
+                            select(-beta0),
+                         betaB_IIA_tibble)
+
+hottest$stats
+
+paste0("\\begin{table}[h]\n",
+       "\\centering\n",
+       "\\caption{Hotelling's $T^2$ test}\\label{tab:hotelling}\n",
+       "\\begin{tabular}{lc}\n \\hline \n",
+       'Test stat &', round(hottest$stats$statistic,3),
+       '\nNumerator df & ', round(hottest$stats$df[1],3),
+       '\nDenominator df & ', round(hottest$stats$df[2],3),
+       '\nP-value & ', round(hottest$pval,3),
+       "\\hline\n", "\\end{tabular}\n",
+       "\\end{table}\n") %>%
+  writeLines(., 'tables/hotelling.tex')
+
 
 betaB_tibble %>%
   pivot_longer(beta1:beta0) %>%
@@ -556,11 +608,6 @@ betaB_tibble %>%
   ggplot(aes(y = value, x = IIA)) + geom_boxplot() +
   facet_wrap(~name, scales = 'free') 
 
-
-hottest <- hotelling.test(betaB_tibble,
-                         betaB_IIA_tibble)
-
-hottest
 
 # Item c
 
@@ -581,28 +628,19 @@ Pb <- map_df(samples,
 
 mean(Pb$pbar) # Estim
 truePbar # "True"
-sd(Pb$pbar) # Estim
-sqrt(truePbar*(1-truePbar)/Nb) # "True"
+var(Pb$pbar) # Estim
+truePbar*(1-truePbar)/Nb # "True"
 
-#set.seed(1981)
-#Pb <- tibble(pbar = rnorm(B, truePbar,sqrt(truePbar*(1-truePbar)/Nb)))
-ggplot(Pb, aes(x = pbar)) + 
-  geom_histogram(aes(y =..density..),
-                 colour = "black", 
-                 fill = "white") +
-  stat_function(fun = dnorm, args = list(mean = truePbar,
-                                         sd = sqrt(truePbar*(1-truePbar)/Nb)))
-
-ggplot(Pb, aes(sample = pbar)) +
-  geom_abline(slope=1, intercept=0) +
-  geom_qq(dparams = list(mean = truePbar, 
-                         sd = sqrt(truePbar*(1-truePbar)/Nb)),
-          alpha = .5)
-
-set.seed(1981)
-theoreticalDist <- rnorm(B, truePbar,sqrt(truePbar*(1-truePbar)/Nb))
-
-ks.test(Pb$pbar, theoreticalDist)
+paste0("\\begin{table}[h]\n",
+       "\\centering\n",
+       "\\caption{$\\bar{P}$ and $\\bar{P}^b$ mean and standard error}\\label{tab:pb-comp}\n",
+       "\\begin{tabular}{lcc}\n \\hline \n",
+       " & $\\bar{P}$ & $\\bar{P}^b$\n",
+       'Mean &', round(truePbar,3), " & ", round(mean(Pb$pbar),3),
+       '\nStd. Dev. & ', round(sqrt(truePbar*(1-truePbar)/Nb),3), "&", round(sd(Pb$pbar),3),
+       "\\hline\n", "\\end{tabular}\n",
+       "\\end{table}\n") %>%
+  writeLines(., 'tables/mean_var.tex')
 
 # ii.
 # alpha
@@ -618,3 +656,14 @@ Pbtilde <- map_df(1:B,
                     filter(SET == 1 & BRAND == 1) %>%
                     mutate(wCHOICE = W[[x]] * CHOICE) %>%
                     dplyr::summarise(pbar = sum(CHOICE)/sum(W[[x]])))
+
+paste0("\\begin{table}[h]\n",
+       "\\centering\n",
+       "\\caption{$\\bar{P}^b$ and $\\tilde{P}^b$ mean and standard error}\\label{tab:pb-comp}\n",
+       "\\begin{tabular}{lcc}\n \\hline \n",
+       " & $\\bar{P}^b$ & $\\tilde{P}^b$\n",
+       'Mean &', mean(Pb$pbar), " & ", round(mean(Pbtilde$pbar),3),
+       '\nStd. Dev. & ', round(sd(Pb$pbar),3), "&", round(sd(Pbtilde$pbar),3),
+       "\\hline\n", "\\end{tabular}\n",
+       "\\end{table}\n") %>%
+  writeLines(., 'tables/mean_var_tilde.tex')
