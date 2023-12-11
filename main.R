@@ -575,10 +575,9 @@ truePbar <- orig_data %>%
 
 Pb <- map_df(samples,
              function(x) x %>%
-               group_by(SET, BRAND) %>%
-               dplyr::summarise(pbar = sum(CHOICE)/n()) %>%
-               ungroup() %>%
-               filter(SET == 1 & BRAND == 1))
+               filter(SET == 1 & BRAND == 1) %>%
+               dplyr::summarise(pbar = sum(CHOICE)/Nb)
+               )
 
 mean(Pb$pbar) # Estim
 truePbar # "True"
@@ -608,15 +607,14 @@ ks.test(Pb$pbar, theoreticalDist)
 # ii.
 # alpha
 set.seed(1981)
-W <- map(1:Nb, function(.x) rexp(B, rate = 1))
+W <- map(1:B, function(.x) rexp(Nb, rate = 1))
 
 # ... depois a gente termina
 
 # beta
 
-map_df(samples,
-       function(x) x %>%
-         group_by(SET, BRAND) %>%
-         dplyr::summarise(pbar = sum(CHOICE)/n()) %>%
-         ungroup() %>%
-         filter(SET == 1 & BRAND == 1))
+Pbtilde <- map_df(1:B,
+                  function(x) samples[[x]] %>%
+                    filter(SET == 1 & BRAND == 1) %>%
+                    mutate(wCHOICE = W[[x]] * CHOICE) %>%
+                    dplyr::summarise(pbar = sum(CHOICE)/sum(W[[x]])))
