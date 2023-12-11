@@ -1,85 +1,85 @@
 library(tidyverse)
+library(xtable)
+library(ggcorrplot)
+library(Hotelling)
+
+source('resources.R')
 
 data = read_csv('brandchoicesDataSet.csv')
-beta = rep(1, 4)
 
-p_t <- function(beta,t){
-  x = data %>%
-    filter(SET == t) %>%
-    select(BRAND, FASH, QUAL, PRICE) %>%
-    distinct() %>%
-    select(-BRAND) %>%
-    mutate(c = 1) %>%
-    as.matrix()
-  
-  return(tibble(SET = t,
-                p_t = 1 + sum(exp(x %*% beta))))
-  
-}
+# Question 1, item b
 
-# tentativa falha
+beta0 = rep(1, 4)/10
 
 probs_llik <- function(beta){
-  x <- data %>%
-    select(BRAND, SET, FASH, QUAL, PRICE) %>%
-    distinct() %>%
-    select(-c(BRAND, SET)) %>%
+  x = data %>%
+    select(FASH, QUAL, PRICE) %>%
     mutate(c = 1) %>%
-    as.matrix()
-  
-  denom <- 1 + sum(exp(x %*% beta))
+    as.matrix() %>%
+    {exp(. %*% beta)} %>%
+    `colnames<-`('p_tk')
   
   probs <- data %>%
-    mutate(p_tk = exp(FASH * beta[1] + QUAL * beta[2] + PRICE * beta[3] + beta[4])/denom)
+    cbind(x) %>%
+    group_by(SET, id) %>%
+    mutate(p_tk = ifelse(BRAND == 0,
+                         1,
+                         p_tk)/(1+sum(p_tk))) %>%
+    ungroup()
   
   llik <- probs %>%
     mutate(llik_itk = CHOICE * log(p_tk)) %>%
-    summarise(sum(llik_itk)) %>%
+    dplyr::summarise(sum(llik_itk)) %>%
     as.numeric()
   return(list(probabilities = probs, llik = llik))
-}
-
-probs_llik <- function(beta){
-  denom <- data %>%
-    select(SET) %>%
-    distinct() %>%
-    {.$SET} %>%
-    map_df(~ p_t(beta, .x))
-  
-  probs <- data %>%
-    left_join(denom) %>%
-    mutate(p_tk = ifelse(BRAND == 0,
-                         1,
-                         exp(FASH * beta[1] + QUAL * beta[2] + PRICE * beta[3] + beta[4]))/p_t)
-  
-   llik <- probs %>%
-    mutate(llik_itk = CHOICE * log(p_tk)) %>%
-    summarise(sum(llik_itk)) %>%
-    as.numeric()
-    return(list(probabilities = probs, llik = llik))
 }
 
 get_llik <- function(beta){
   return(-probs_llik(beta)$llik)
 }
 
-result <- optim(par = c(0,0,0,1),
+result <- optim(par = beta0,
                 fn = get_llik,
                 method= 'BFGS')
 
 beta_ml <- result$par
 
+optim_to_latex(result, label = "tab:mv",
+               caption = 'Logit - Maximum Likelihood estimate',
+               param_labels = c(paste0('$\\beta_', c(1:3,0),'$'))) %>%
+  writeLines(., 'tables/mv.tex')
+
 probs_llik(beta_ml)$probabilities %>%
   select(BRAND, SET, p_tk) %>%
   arrange(SET, BRAND) %>%
   distinct() %>%
-  pivot_wider(names_from = BRAND, values_from = p_tk)
+  pivot_wider(names_from = BRAND, values_from = p_tk) %>%
+  select(-SET) %>%
+  as.matrix() %>%
+  ggcorrplot(lab = T, lab_size = 8,
+             colors = c(my_col[4], 'white', my_col[1])) +
+  labs(x = 'Set', y = 'Brand', fill = '') +
+  my_theme +
+  guides(fill = 'none') +
+  scale_x_continuous(breaks = c(1:8))
+ggsave('figures/prob-mv.pdf', scale = 1.5, device = cairo_pdf)
 
-data %>%
+pbar <- data %>%
   group_by(SET, BRAND) %>%
-  summarise(pbar = sum(CHOICE)/n()) %>%
-  ungroup() %>%
-  pivot_wider(names_from = BRAND, values_from = pbar)
+  dplyr::summarise(pbar = sum(CHOICE)/n()) %>%
+  ungroup()
+
+pbar %>%
+  pivot_wider(names_from = BRAND, values_from = pbar) %>%
+  select(-SET) %>%
+  as.matrix() %>%
+  ggcorrplot(lab = T, lab_size = 8,
+             colors = c(my_col[4], 'white', my_col[1])) +
+  labs(x = 'Set', y = 'Brand', fill = '') +
+  my_theme +
+  guides(fill = 'none') +
+  scale_x_continuous(breaks = c(1:8))
+ggsave('figures/prob-avg.pdf', scale = 1.5, device = cairo_pdf)
 
 # Item c
 
@@ -118,7 +118,8 @@ sscore_fun <- function(beta, t, k, j, l){
   pt0 <- (1 + sum(exp(x %*% beta)))^(-1)
   
   if(k == 0){
-    return(-pt0* (score_fun(beta, t, 0, l) * (x[,j] %*% exp(x %*% beta)) + ((x[,j] * x[,l]) %*% exp(x %*% beta))))
+    return(-pt0* (score_fun(beta, t, 0, l) * (x[,j] %*% exp(x %*% beta)) +
+                    ((x[,j] * x[,l]) %*% exp(x %*% beta))))
   }else{
     return(sscore_fun(beta, t, 0, j, l))
   }
@@ -170,9 +171,17 @@ J <- data %>%
   Reduce('+', .) * (-1)
 
 # Corretly specified estimate
-Jinv <- solve(Ical)
+Jinv <- solve(J)
 
-sqrt(diag(Jinv))
+sqrt(diag(Jinv)) %>%
+  t() %>%
+  round(3) %>%
+  `colnames<-`(c(paste0('$\\beta_', c(1:3,0),'$'))) %>%
+  {print(xtable(., label = 'tab:normalAvar',
+                caption = 'Estimated standard errors - Inverse Fisher'),
+         type='latex', sanitize.text.function=identity,
+         include.rownames = FALSE,
+        file = "tables/normal.tex")}
 
 # ... or just the slice of bread
 
@@ -193,9 +202,17 @@ Meat <- data %>%
   Reduce('+', .)
 
 # Misspecified 
-sand <- Hinv %*% Meat %*% Hinv 
+sand <- Jinv %*% Meat %*% Jinv 
 
-sqrt(diag(sand))
+sqrt(diag(sand)) %>%
+  t() %>%
+  round(3) %>%
+  `colnames<-`(c(paste0('$\\beta_', c(1:3,0),'$'))) %>%
+  {print(xtable(., label = 'tab:sandwich',
+                caption = 'Estimated standard errors - Sandwich Estimator'),
+         type='latex', sanitize.text.function=identity,
+         include.rownames = FALSE,
+         file = "tables/sandwich.tex")}
 
 # Item d
 
@@ -204,11 +221,402 @@ probs_llik(beta_ml)$probabilities %>%
   arrange(SET, BRAND) %>%
   distinct() %>%
   group_by(SET) %>%
-  mutate(pt1 = ifelse(BRAND == 1, p_tk, 0)) %>%
+  mutate(pt1 = ifelse(BRAND == 1,
+                      p_tk,
+                      0)) %>%
   mutate(pt1 = sum(pt1)) %>%
   ungroup() %>%
-  mutate(partial = -p_tk * pt1 *beta_ml[3]) %>%
+  mutate(partial = ifelse(BRAND == 1, p_tk*(1-p_tk), -p_tk * pt1) *beta_ml[3]) %>%
   select(SET, BRAND, partial) %>%
-  pivot_wider(names_from = BRAND, values_from = partial)
+  pivot_wider(names_from = BRAND, values_from = partial) %>%
+  select(-SET) %>%
+  as.matrix() %>%
+  ggcorrplot(lab = T, lab_size = 8,
+             colors = c(my_col[4], 'white', my_col[1])) +
+  labs(x = 'Set', y = 'Brand', fill = '') +
+  my_theme +
+  guides(fill = 'none') +
+  scale_x_continuous(breaks = c(1:8))
+ggsave('figures/mg1d.pdf', scale = 1.5, device = cairo_pdf)
+
+# Item e
+
+data <- data %>%
+  filter(BRAND != 0)
+
+result_IIA <- optim(par = beta0,
+                fn = get_llik,
+                method= 'BFGS')
+
+optim_to_latex(result_IIA, label = "tab:mvIIA",
+               caption = 'Logit - Independence of Irrelevant Alternative - Maximum Likelihood estimate',
+               param_labels = c(paste0('$\\beta_', c(1:3,0),'$')))  %>%
+  writeLines(., 'tables/logit_iia.tex')
+
+result_IIA$par
+beta_ml
+
+# Question 2, item b
+data = read_csv('brandchoicesDataSet.csv')
+
+probs_llik_nested <- function(beta){
+  x2 <- data %>%
+    select(BRAND, SET, FASH, QUAL, PRICE) %>%
+    filter(BRAND != 0) %>%
+    distinct() %>%
+    select(-c(BRAND, SET)) %>%
+    mutate(c = 1) %>%
+    as.matrix()
+  
+  x1 <- data %>%
+    select(BRAND, SET, FASH, QUAL, PRICE) %>%
+    filter(BRAND == 0) %>%
+    distinct() %>%
+    select(-c(BRAND, SET)) %>%
+    mutate(c = 1) %>%
+    as.matrix()
+  
+  denom <- sum(exp(x1 %*% beta[-5])) + (sum(exp(x2 %*% beta[-5] / beta[5])))^beta[5]
+  
+  probs <- data %>%
+    mutate(p_tk = ifelse(BRAND == 0,
+                         sum(exp(x1 %*% beta[-5])),
+                         sum(exp(x2 %*% beta[-5] / beta[5]))^beta[5] *
+                           exp((FASH * beta[1] + QUAL * beta[2] + PRICE * beta[3] + beta[4])/beta[5]) /
+                           (sum(exp(x2 %*% beta[-5] / beta[5]))))/denom)
+  
+  llik <- probs %>%
+    mutate(llik_itk = CHOICE * log(p_tk)) %>%
+    dplyr::summarise(sum(llik_itk)) %>%
+    as.numeric()
+  return(list(probabilities = probs, llik = llik))
+}
+
+get_llik_nested <- function(beta){
+  return(-probs_llik_nested(beta)$llik)
+}
+
+beta0_nested <- rep(1,5)
+result_nested <- optim(par = beta0_nested,
+                fn = get_llik_nested,
+                method= 'BFGS')
+beta_nested <-result_nested$par
+
+optim_to_latex(result_nested, label = "tab:nestmv",
+               caption = 'Nested Logit - Maximum Likelihood estimate',
+               param_labels = c(paste0('$\\beta_', c(1:3,0),'$'), '$\\sigma$')) %>%
+  writeLines(., 'tables/nestmv.tex')
+
+probs_llik_nested(beta_nested)$probabilities %>%
+  select(BRAND, SET, p_tk) %>%
+  arrange(SET, BRAND) %>%
+  distinct() %>%
+  filter(BRAND == 0) %>%
+  mutate(partial = - p_tk * (1-p_tk) * beta_nested[3]) %>%
+  select(partial)  %>%
+  as.matrix() %>%
+  `colnames<-`('0') %>%
+  `rownames<-`(c(1:8)) %>%
+  t() %>%
+  {print(xtable(., label = 'tab:mg2c',
+                caption = 'Marginal price increase - brand 1 on choice probability of brand 0'),
+         type='latex', sanitize.text.function=identity,
+         include.rownames = FALSE,
+         file = "tables/Partial2c.tex")}
+  
+# Item d
+
+min_dist <- function(beta){
+  diag_pbar <- pbar %>%
+    filter(BRAND != 0) %>%
+    arrange(BRAND, SET) %>%
+    {.$pbar %>% diag()}
+  
+  estim_prob <- probs_llik_nested(beta)$probabilities %>%
+    select(BRAND, SET, p_tk) %>%
+    filter(BRAND != 0) %>%
+    arrange(BRAND, SET) %>%
+    distinct() %>%
+    {.$p_tk %>% diag}
+  
+  diff_prob <- (estim_prob - diag_pbar) %*% 
+    (diag(1, nrow = 8) %>%
+       rbind(.,.,.))
+  
+  map(1:3, ~
+        data %>%
+        select(BRAND, SET, FASH, QUAL, PRICE) %>%
+        filter(BRAND == .x) %>%
+        arrange(BRAND, SET) %>%
+        distinct() %>%
+        mutate(c = 1) %>%
+        select(c, FASH, QUAL, PRICE) %>%
+        as.matrix() %>% t() %>%
+        `colnames<-`(1:8) %>%
+        {1/8 * . %*% diff_prob[((.x-1) * 8 + 1):(.x * 8),]}) %>%
+    do.call(rbind,.) %>%
+    rowSums() %>%
+    {t(.) %*% .} %>%
+    as.numeric() %>%
+    return()
+  
+}
+
+result_gmm <- optim(par = beta0_nested,
+                       fn = min_dist,
+                       method= 'BFGS')
+result_gmm
+
+optim_to_latex(result_gmm, label = "tab:gmm",
+               caption = 'Nested Logit - GMM estimate',
+               param_labels = c(paste0('$\\beta_', c(1:3,0),'$'), '$\\sigma$')) %>%
+  writeLines(., 'tables/nestgmm.tex')
+
+# Question 3, item c/d
+
+S = 1000
+
+set.seed(1981)
+eta <- rnorm(S)
+
+data_expand <- data %>%
+  #select(BRAND, FASH, QUAL, PRICE) %>%
+  #distinct() %>%
+  slice(rep(1:n(), each = 1000)) %>%
+  mutate(Sim = rep(1:S, nrow(data)))
+
+probs_llik_sim <- function(beta, eta){
+  x = data_expand %>%
+    select(FASH, QUAL, PRICE) %>%
+    as.matrix() %>%
+    {. %*% beta[-c(4:5)]} %>%
+    `colnames<-`('p_tk')
+  
+  x <- exp(x + beta[4] + rep(eta, nrow(data)) * beta[5])
+  
+  probs <- data_expand %>%
+    cbind(x) %>%
+    group_by(SET, id, Sim) %>%
+    mutate(p_tk = p_tk/(1+sum(p_tk))) %>%
+    ungroup()
+  
+  probs_avg <- probs %>%
+    group_by(id, BRAND, SET, CHOICE, FASH, QUAL, PRICE) %>%
+    dplyr::summarise(Lis = mean(p_tk, na.rm = T)) %>%
+    ungroup()
+  
+  llik <- probs_avg %>%
+    mutate(llik_itk = CHOICE * log(Lis)) %>%
+    dplyr::summarise(sum(llik_itk, na.rm = T)) %>%
+    as.numeric()
+  return(list(probabilities = probs_avg, llik = llik))
+}
+
+get_llik_sim <- function(beta){
+  return(-probs_llik_sim(beta, eta)$llik)
+}
+
+result_mix_mv <- optim(par = beta0_nested,
+                fn = get_llik_sim,
+                method= 'BFGS')
+
+optim_to_latex(result_mix_mv, label = "tab:mixed-mv",
+               caption = 'Mixed Logit - Maximum Likelihood estimate',
+               param_labels = c(paste0('$\\beta_', c(1:3,0),'$'), '$\\omega$')) %>%
+  writeLines(., 'tables/mix-mv.tex')
+
+# Item e
+
+min_dist_mix <- function(beta){
+  diag_pbar <- pbar %>%
+    filter(BRAND != 0) %>%
+    arrange(BRAND, SET) %>%
+    {.$pbar %>% diag()}
+  
+  estim_prob <- probs_llik_sim(beta, eta)$probabilities %>%
+    select(BRAND, SET, Lis) %>%
+    filter(BRAND != 0) %>%
+    arrange(BRAND, SET) %>%
+    distinct() %>%
+    {.$Lis %>% diag}
+  
+  diff_prob <- (estim_prob - diag_pbar) %*% 
+    (diag(1, nrow = 8) %>%
+       rbind(.,.,.))
+  
+  map(1:3, ~
+        data %>%
+        select(BRAND, SET, FASH, QUAL, PRICE) %>%
+        filter(BRAND == .x) %>%
+        arrange(BRAND, SET) %>%
+        distinct() %>%
+        mutate(c = 1) %>%
+        select(c, FASH, QUAL, PRICE) %>%
+        as.matrix() %>% t() %>%
+        `colnames<-`(1:8) %>%
+        {1/8 * . %*% diff_prob[((.x-1) * 8 + 1):(.x * 8),]}) %>%
+    do.call(rbind,.) %>%
+    rowSums() %>%
+    {t(.) %*% .} %>%
+    as.numeric() %>%
+    return()
+  
+}
+
+result_mix_gmm <- optim(par = beta0_nested,
+                    fn = min_dist_mix,
+                    method= 'BFGS')
+result_mix_gmm
+
+optim_to_latex(result_mix_gmm, label = "tab:mixed-gmm",
+               caption = 'Mixed Logit - GMM estimate',
+               param_labels = c(paste0('$\\beta_', c(1:3,0),'$'), '$\\omega$')) %>%
+  writeLines(., 'tables/mix-gmm.tex')
+
+# Question 4
+orig_data <- data
+
+B = 1000
+Nb <- n_distinct(orig_data$id)
+set.seed(1981)
+
+ibs <- list()
+betaB <- list()
+betaB_IIA <- list()
+samples <- list()
+
+for(b in 1:B){
+  print(paste0('b = ', b))
+  ibs[[b]] <- sample(1:Nb, size = Nb, replace = T) # Item a
+  
+  # Item b
+  
+  # Subset the data frame based on the sampled IDs
+  subset_df <- orig_data[orig_data$id %in% ibs[[b]], ]
+  
+  # Identify the counts of each ID in the sampled_ids vector
+  id_counts <- table(ibs[[b]])
+  
+  # Create an empty data frame to store the final subset with duplicated entries
+  data <- data.frame()
+  
+  # Loop through each unique ID in the sampled IDs vector
+  for (idd in unique(ibs[[b]])) {
+    # Subset the rows of subset_df that match the current ID
+    subset_for_id <- subset_df[subset_df$id == idd, ]
+    
+    # Duplicate the rows based on the count of the current ID
+    if (id_counts[as.character(idd)] > 1) {
+      duplicated_entries <- subset_for_id[rep(1:nrow(subset_for_id),
+                                              each = id_counts[as.character(idd)]), ]
+      data <- rbind(data, duplicated_entries)
+    } else {
+      data <- rbind(data, subset_for_id)
+    }
+  }
+  
+  samples[[b]] <- data
+  
+  
+  betaB[[b]] <- optim(par = beta0,
+                 fn = get_llik,
+                 method= 'BFGS')$par
+  
+  data <- data %>%
+    filter(BRAND != 0)
+  
+  betaB_IIA[[b]] <- optim(par = beta0,
+                     fn = get_llik,
+                     method= 'BFGS')$par
+}
+
+betaB_IIA_tibble <- do.call(cbind, betaB_IIA) %>%
+  t() %>%
+  `colnames<-`(paste0('beta', c(1:3,0))) %>%
+  data.frame() %>%
+  tibble()
+
+betaB_tibble <- do.call(cbind, betaB) %>%
+  t() %>%
+  `colnames<-`(paste0('beta', c(1:3,0))) %>%
+  data.frame() %>%
+  tibble()
+
+betaB_tibble %>%
+  pivot_longer(beta1:beta0) %>%
+  ggplot(aes(sample = value)) + geom_qq_line() +
+  geom_qq(alpha = .5) + facet_wrap(~name, scales = 'free') 
+
+betaB_tibble %>%
+  mutate(IIA = 0) %>%
+  bind_rows(betaB_IIA_tibble %>%
+              mutate(IIA = 1)) %>%
+  mutate(IIA = factor(IIA)) %>%
+  pivot_longer(beta1:beta0) %>%
+  ggplot(aes(y = value, x = IIA)) + geom_boxplot() +
+  facet_wrap(~name, scales = 'free') 
 
 
+hottest <- hotelling.test(betaB_tibble,
+                         betaB_IIA_tibble)
+
+hottest
+
+# Item c
+
+#i.
+
+truePbar <- orig_data %>%
+  group_by(SET, BRAND) %>%
+  dplyr::summarise(pbar = sum(CHOICE)/n()) %>%
+  ungroup() %>%
+  filter(SET == 1 & BRAND == 1) %>%
+  {.$pbar}
+
+Pb <- map_df(samples,
+             function(x) x %>%
+               group_by(SET, BRAND) %>%
+               dplyr::summarise(pbar = sum(CHOICE)/n()) %>%
+               ungroup() %>%
+               filter(SET == 1 & BRAND == 1))
+
+mean(Pb$pbar) # Estim
+truePbar # "True"
+sd(Pb$pbar) # Estim
+sqrt(truePbar*(1-truePbar)/Nb) # "True"
+
+#set.seed(1981)
+#Pb <- tibble(pbar = rnorm(B, truePbar,sqrt(truePbar*(1-truePbar)/Nb)))
+ggplot(Pb, aes(x = pbar)) + 
+  geom_histogram(aes(y =..density..),
+                 colour = "black", 
+                 fill = "white") +
+  stat_function(fun = dnorm, args = list(mean = truePbar,
+                                         sd = sqrt(truePbar*(1-truePbar)/Nb)))
+
+ggplot(Pb, aes(sample = pbar)) +
+  geom_abline(slope=1, intercept=0) +
+  geom_qq(dparams = list(mean = truePbar, 
+                         sd = sqrt(truePbar*(1-truePbar)/Nb)),
+          alpha = .5)
+
+set.seed(1981)
+theoreticalDist <- rnorm(B, truePbar,sqrt(truePbar*(1-truePbar)/Nb))
+
+ks.test(Pb$pbar, theoreticalDist)
+
+# ii.
+# alpha
+set.seed(1981)
+W <- map(1:Nb, function(.x) rexp(B, rate = 1))
+
+# ... depois a gente termina
+
+# beta
+
+map_df(samples,
+       function(x) x %>%
+         group_by(SET, BRAND) %>%
+         dplyr::summarise(pbar = sum(CHOICE)/n()) %>%
+         ungroup() %>%
+         filter(SET == 1 & BRAND == 1))
