@@ -244,7 +244,7 @@ ggsave('figures/mg1d.pdf', scale = 1.5, device = cairo_pdf)
 data <- data %>%
   filter(BRAND != 0)
 
-beta0 = rep(1, 3)/10
+beta0_IIA = rep(1, 3)/10
 
 probs_llik_IIA <- function(beta){
   x = data %>%
@@ -273,7 +273,7 @@ get_llik_IIA <- function(beta){
   return(-probs_llik_IIA(beta)$llik)
 }
 
-result_IIA <- optim(par = beta0,
+result_IIA <- optim(par = beta0_IIA,
                 fn = get_llik_IIA,
                 method= 'BFGS')
 
@@ -585,11 +585,11 @@ paste0("\\begin{table}[h]\n",
        "\\centering\n",
        "\\caption{Hotelling's $T^2$ test}\\label{tab:hotelling}\n",
        "\\begin{tabular}{lc}\n \\hline \n",
-       'Test stat &', round(hottest$stats$statistic,3),
-       '\nNumerator df & ', round(hottest$stats$df[1],3),
-       '\nDenominator df & ', round(hottest$stats$df[2],3),
-       '\nP-value & ', round(hottest$pval,3),
-       "\\hline\n", "\\end{tabular}\n",
+       'Test stat &', round(hottest$stats$statistic,3), '\\\\',
+       '\nNumerator df & ', round(hottest$stats$df[1],3), '\\\\',
+       '\nDenominator df & ', round(hottest$stats$df[2],3), '\\\\',
+       '\nP-value & ', round(hottest$pval,3), '\\\\',
+       "\\hline\\\\\n", "\\end{tabular}\n",
        "\\end{table}\n") %>%
   writeLines(., 'tables/hotelling.tex')
 
@@ -635,10 +635,10 @@ paste0("\\begin{table}[h]\n",
        "\\centering\n",
        "\\caption{$\\bar{P}$ and $\\bar{P}^b$ mean and standard error}\\label{tab:pb-comp}\n",
        "\\begin{tabular}{lcc}\n \\hline \n",
-       " & $\\bar{P}$ & $\\bar{P}^b$\n",
-       'Mean &', round(truePbar,3), " & ", round(mean(Pb$pbar),3),
-       '\nStd. Dev. & ', round(sqrt(truePbar*(1-truePbar)/Nb),3), "&", round(sd(Pb$pbar),3),
-       "\\hline\n", "\\end{tabular}\n",
+       " & $\\bar{P}$ & $\\bar{P}^b$\n", '\\hline',  '\\\\',
+       'Mean &', round(truePbar,3), " & ", round(mean(Pb$pbar),3), '\\\\',
+       '\nStd. Dev. & ', round(sqrt(truePbar*(1-truePbar)/Nb),3), "&", round(sd(Pb$pbar),3), '\\\\',
+       "\\hline\\\\\n", "\\end{tabular}\n",
        "\\end{table}\n") %>%
   writeLines(., 'tables/mean_var.tex')
 
@@ -661,9 +661,10 @@ paste0("\\begin{table}[h]\n",
        "\\centering\n",
        "\\caption{$\\bar{P}^b$ and $\\tilde{P}^b$ mean and standard error}\\label{tab:pb-comp}\n",
        "\\begin{tabular}{lcc}\n \\hline \n",
-       " & $\\bar{P}^b$ & $\\tilde{P}^b$\n",
-       'Mean &', mean(Pb$pbar), " & ", round(mean(Pbtilde$pbar),3),
-       '\nStd. Dev. & ', round(sd(Pb$pbar),3), "&", round(sd(Pbtilde$pbar),3),
-       "\\hline\n", "\\end{tabular}\n",
+       " & $\\bar{P}^b$ & $\\tilde{P}^b$\n", '\\hline',  '\\\\',
+       'Mean &', mean(Pb$pbar), " & ", round(mean(Pbtilde$pbar),3), '\\\\',
+       '\nStd. Dev. & ', round(sd(Pb$pbar),3), "&", round(sd(Pbtilde$pbar),3), '\\\\',
+       "\\hline\\\\
+       \n", "\\end{tabular}\n",
        "\\end{table}\n") %>%
   writeLines(., 'tables/mean_var_tilde.tex')
