@@ -183,7 +183,7 @@ sqrt(diag(Jinv)) %>%
          include.rownames = FALSE,
         file = "tables/normal.tex")}
 
-# ... or just the slice of bread
+# ... or just a slice of bread
 
 # Analogously, a tibble with "meat" matrices
 meat_kt <- pmap(
@@ -194,15 +194,15 @@ meat_kt <- pmap(
 ) %>%
   do.call(rbind, .)
 
-# The meat, or Score Score'
+# The bread, or Score Score'
 Meat <- data %>%
   left_join(meat_kt) %>%
   filter(CHOICE == 1) %>%
   {.$scsc} %>%
-  Reduce('+', .)
+  Reduce('+', .)/400
 
 # Misspecified 
-sand <- Jinv %*% Meat %*% Jinv 
+sand <- Jinv %*% Meat %*% Jinv
 
 sqrt(diag(sand)) %>%
   t() %>%
@@ -340,21 +340,24 @@ optim_to_latex(result_nested, label = "tab:nestmv",
                param_labels = c(paste0('$\\beta_', c(1:3,0),'$'), '$\\sigma$')) %>%
   writeLines(., 'tables/nestmv.tex')
 
+# Item c
+
 probs_llik_nested(beta_nested)$probabilities %>%
   select(BRAND, SET, p_tk) %>%
   arrange(SET, BRAND) %>%
   distinct() %>%
-  filter(BRAND == 0) %>%
+  filter(BRAND == 0) %>% # k = 0
   mutate(partial = - p_tk * (1-p_tk) * beta_nested[3]) %>%
   select(partial)  %>%
-  as.matrix() %>%
+  as.matrix() %>% # Partial effects for each t
   `colnames<-`('0') %>%
   `rownames<-`(c(1:8)) %>%
   t() %>%
+  `rownames<-`(c('Effect')) %>%
   {print(xtable(., label = 'tab:mg2c',
                 caption = 'Marginal price increase - brand 1 on choice probability of brand 0'),
          type='latex', sanitize.text.function=identity,
-         include.rownames = FALSE,
+         include.rownames = TRUE,
          file = "tables/Partial2c.tex")}
   
 # Item d
@@ -425,6 +428,7 @@ probs_llik_sim <- function(beta, eta){
     {. %*% beta[-c(4:5)]} %>%
     `colnames<-`('p_tk')
   
+  # Adding the "intercept"
   x <- exp(x + beta[4] + rep(eta, nrow(data)) * beta[5])
   
   probs <- data_expand %>%
@@ -595,19 +599,14 @@ paste0("\\begin{table}[h]\n",
 
 
 betaB_tibble %>%
-  pivot_longer(beta1:beta0) %>%
-  ggplot(aes(sample = value)) + geom_qq_line() +
-  geom_qq(alpha = .5) + facet_wrap(~name, scales = 'free') 
-
-betaB_tibble %>%
   mutate(IIA = 0) %>%
   bind_rows(betaB_IIA_tibble %>%
-              mutate(IIA = 1)) %>%
+              mutate(IIA = 1, beta0 = 0)) %>%
   mutate(IIA = factor(IIA)) %>%
   pivot_longer(beta1:beta0) %>%
   ggplot(aes(y = value, x = IIA)) + geom_boxplot() +
-  facet_wrap(~name, scales = 'free') 
-
+  facet_wrap(~name, scales = 'free') + my_theme
+ggsave('figures/boxplotbetas.pdf', scale = 1.5, device = cairo_pdf)
 
 # Item c
 
@@ -631,12 +630,12 @@ truePbar # "True"
 var(Pb$pbar) # Estim
 truePbar*(1-truePbar)/Nb # "True"
 
-paste0("\\begin{table}[h]\n",
+paste0("\\begin{table}[h!]\n",
        "\\centering\n",
        "\\caption{$\\bar{P}$ and $\\bar{P}^b$ mean and standard error}\\label{tab:pb-comp}\n",
        "\\begin{tabular}{lcc}\n \\hline \n",
-       " & $\\bar{P}$ & $\\bar{P}^b$\n", '\\hline',  '\\\\',
-       'Mean &', round(truePbar,3), " & ", round(mean(Pb$pbar),3), '\\\\',
+       " & $\\bar{P}$ & $\\bar{P}^b$ \\\\ \n", '\\hline',
+       '\nMean &', round(truePbar,3), " & ", round(mean(Pb$pbar),3), '\\\\',
        '\nStd. Dev. & ', round(sqrt(truePbar*(1-truePbar)/Nb),3), "&", round(sd(Pb$pbar),3), '\\\\',
        "\\hline\\\\\n", "\\end{tabular}\n",
        "\\end{table}\n") %>%
@@ -657,14 +656,13 @@ Pbtilde <- map_df(1:B,
                     mutate(wCHOICE = W[[x]] * CHOICE) %>%
                     dplyr::summarise(pbar = sum(CHOICE)/sum(W[[x]])))
 
-paste0("\\begin{table}[h]\n",
+paste0("\\begin{table}[h!]\n",
        "\\centering\n",
        "\\caption{$\\bar{P}^b$ and $\\tilde{P}^b$ mean and standard error}\\label{tab:pb-comp}\n",
        "\\begin{tabular}{lcc}\n \\hline \n",
-       " & $\\bar{P}^b$ & $\\tilde{P}^b$\n", '\\hline',  '\\\\',
-       'Mean &', mean(Pb$pbar), " & ", round(mean(Pbtilde$pbar),3), '\\\\',
+       " & $\\bar{P}^b$ & $\\tilde{P}^b$ \\\\ \n", '\\hline',
+       '\nMean &', round(mean(Pb$pbar),3), " & ", round(mean(Pbtilde$pbar),3), '\\\\',
        '\nStd. Dev. & ', round(sd(Pb$pbar),3), "&", round(sd(Pbtilde$pbar),3), '\\\\',
-       "\\hline\\\\
-       \n", "\\end{tabular}\n",
+       "\\hline\\\\\n", "\\end{tabular}\n",
        "\\end{table}\n") %>%
   writeLines(., 'tables/mean_var_tilde.tex')

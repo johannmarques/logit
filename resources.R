@@ -10,10 +10,11 @@ optim_to_latex <- function(x, label = "table:optimal_params", caption = "Optimal
   table_data <- data.frame(Parameter = param_labels,
                            Value = round(x$par,3))
   
-  latex_code <- paste0("\\begin{table}[htb]\n",
+  latex_code <- paste0("\\begin{table}[h!]\n",
                        "\\centering\n",
                        "\\caption{", caption, "}\\label{", label, "}\n",
-                       "\\begin{tabular}{lc}\n \\hline \n")
+                       "\\begin{tabular}{cc}\n \\hline \n",
+                       'Parameter & Estimate \\\\ \\hline \n')
   
   for (i in seq(nrow(table_data))) {
     latex_code <- paste0(latex_code, table_data[i, "Parameter"], " & ", table_data[i, "Value"], " \\\\ \n")
