@@ -246,12 +246,12 @@ data <- data %>%
 
 beta0_IIA = rep(1, 3)/10
 
-probs_llik_IIA <- function(beta){
+probs_llik_IIA <- function(beta, b0){
   x = data %>%
     select(FASH, QUAL, PRICE) %>%
     #mutate(c = 1) %>%
     as.matrix() %>%
-    {exp(. %*% beta)} %>%
+    {exp(. %*% beta + b0)} %>%
     `colnames<-`('p_tk')
   
   probs <- data %>%
@@ -269,8 +269,10 @@ probs_llik_IIA <- function(beta){
   return(list(probabilities = probs, llik = llik))
 }
 
+b0 <- beta_ml[4]
+
 get_llik_IIA <- function(beta){
-  return(-probs_llik_IIA(beta)$llik)
+  return(-probs_llik_IIA(beta, b0)$llik)
 }
 
 result_IIA <- optim(par = beta0_IIA,
@@ -279,7 +281,7 @@ result_IIA <- optim(par = beta0_IIA,
 
 result_IIA_orig <- result_IIA
 
-result_IIA$par <- c(result_IIA$par, 0)
+result_IIA$par <- c(result_IIA$par, b0)
 
 optim_to_latex(result_IIA, label = "tab:mvIIA",
                caption = 'Logit - Independence of Irrelevant Alternative - Maximum Likelihood estimate',
@@ -562,9 +564,15 @@ for(b in 1:B){
   data <- data %>%
     filter(BRAND != 0)
   
+  b0 <- betaB[[b]][4]
+  
   betaB_IIA[[b]] <- optim(par = beta0_IIA,
                      fn = get_llik_IIA,
                      method= 'BFGS')$par
+  print('beta:')
+  print(betaB[[b]])
+  print('beta_IIA:')
+  print(c(betaB_IIA[[b]], b0))
 }
 
 betaB_IIA_tibble <- do.call(cbind, betaB_IIA) %>%
@@ -579,9 +587,9 @@ betaB_tibble <- do.call(cbind, betaB) %>%
   data.frame() %>%
   tibble()
 
-hottest <- hotelling.test(betaB_tibble %>%
-                            select(-beta0),
-                         betaB_IIA_tibble)
+hottest <- hotelling.test(betaB_tibble,
+                         betaB_IIA_tibble %>%
+                           mutate(beta0 = betaB_tibble$beta0))
 
 hottest$stats
 
@@ -601,7 +609,7 @@ paste0("\\begin{table}[h]\n",
 betaB_tibble %>%
   mutate(IIA = 0) %>%
   bind_rows(betaB_IIA_tibble %>%
-              mutate(IIA = 1, beta0 = 0)) %>%
+              mutate(IIA = 1, beta0 = betaB_tibble$beta0)) %>%
   mutate(IIA = factor(IIA)) %>%
   pivot_longer(beta1:beta0) %>%
   ggplot(aes(y = value, x = IIA)) + geom_boxplot() +
@@ -646,10 +654,6 @@ paste0("\\begin{table}[h!]\n",
 set.seed(1981)
 W <- map(1:B, function(.x) rexp(Nb, rate = 1))
 
-# ... depois a gente termina
-
-# beta
-
 Pbtilde <- map_df(1:B,
                   function(x) samples[[x]] %>%
                     filter(SET == 1 & BRAND == 1) %>%
@@ -666,3 +670,4 @@ paste0("\\begin{table}[h!]\n",
        "\\hline\\\\\n", "\\end{tabular}\n",
        "\\end{table}\n") %>%
   writeLines(., 'tables/mean_var_tilde.tex')
+
